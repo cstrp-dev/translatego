@@ -64,6 +64,94 @@ func CreateProgressBar(progress float64, width int) string {
 	return fmt.Sprintf("[%s] %d%%", bar, percentage)
 }
 
+func WrapText(text string, width int) string {
+	if width <= 0 || text == "" {
+		return text
+	}
+
+	lines := strings.Split(text, "\n")
+	var result []string
+
+	for _, line := range lines {
+		if len(line) <= width {
+			// Pad the line to full width for better space utilization
+			paddedLine := line + strings.Repeat(" ", width-len(line))
+			result = append(result, paddedLine)
+			continue
+		}
+
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			paddedLine := line + strings.Repeat(" ", width-len(line))
+			result = append(result, paddedLine)
+			continue
+		}
+
+		var currentLine []string
+		lineLength := 0
+
+		for _, word := range words {
+			wordLength := len(word)
+
+			if lineLength == 0 {
+				currentLine = append(currentLine, word)
+				lineLength = wordLength
+			} else if lineLength+1+wordLength <= width {
+				currentLine = append(currentLine, word)
+				lineLength += 1 + wordLength
+			} else {
+				line := strings.Join(currentLine, " ")
+				paddedLine := line + strings.Repeat(" ", width-len(line))
+				result = append(result, paddedLine)
+				currentLine = []string{word}
+				lineLength = wordLength
+			}
+		}
+
+		if len(currentLine) > 0 {
+			line := strings.Join(currentLine, " ")
+			paddedLine := line + strings.Repeat(" ", width-len(line))
+			result = append(result, paddedLine)
+		}
+	}
+
+	return strings.Join(result, "\n")
+}
+
+func justifyLine(words []string, width int) string {
+	if len(words) == 1 {
+		return words[0] + strings.Repeat(" ", width-len(words[0]))
+	}
+
+	totalWordLength := 0
+	for _, word := range words {
+		totalWordLength += len(word)
+	}
+
+	totalSpaces := width - totalWordLength
+	gaps := len(words) - 1
+
+	if gaps == 0 {
+		return words[0] + strings.Repeat(" ", totalSpaces)
+	}
+
+	spacesPerGap := totalSpaces / gaps
+	extraSpaces := totalSpaces % gaps
+
+	var result strings.Builder
+	for i, word := range words {
+		result.WriteString(word)
+		if i < len(words)-1 {
+			result.WriteString(strings.Repeat(" ", spacesPerGap))
+			if i < extraSpaces {
+				result.WriteString(" ")
+			}
+		}
+	}
+
+	return result.String()
+}
+
 func GetDetailedErrorMessage(service string, err error) string {
 	if err == nil {
 		return ""

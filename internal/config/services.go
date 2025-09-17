@@ -47,7 +47,7 @@ func GetAvailableServices() []ServiceConfig {
 		},
 		{
 			Name:   "LINGVA",
-			URL:    "https://lingva.ml/api/v1/{source}/{target}/{text}",
+			URL:    "https://lingva.thedaviddelta.com/api/v1/{source}/{target}/{text}",
 			Method: http.MethodGet,
 		},
 		{

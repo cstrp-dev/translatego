@@ -40,7 +40,7 @@ func CheckService(cfg ServiceConfig) Result {
 		body = []byte(`{"format":"text","from":"en","to":"de","input":"test"}`)
 		checkURL = cfg.URL
 	case "LINGVA":
-		checkURL = "https://lingva.ml/api/v1/en/de/test"
+		checkURL = "https://lingva.thedaviddelta.com/api/v1/en/de/test"
 	case "MYMEMORY":
 		checkURL = "https://api.mymemory.translated.net/get?q=test&langpair=en|de"
 	case "GOOGLE":
@@ -117,7 +117,7 @@ func TranslateService(cfg ServiceConfig, text, source, target string) (string, e
 	case "MYMEMORY":
 		finalURL = fmt.Sprintf("https://api.mymemory.translated.net/get?q=%s&langpair=%s|%s", url.QueryEscape(text), sourceCode, targetCode)
 	case "LINGVA":
-		finalURL = fmt.Sprintf("https://lingva.ml/api/v1/%s/%s/%s", sourceCode, targetCode, url.QueryEscape(text))
+		finalURL = fmt.Sprintf("https://lingva.thedaviddelta.com/api/v1/%s/%s/%s", sourceCode, targetCode, url.QueryEscape(text))
 	case "OPENAI":
 		body = []byte(fmt.Sprintf(`{
 			"model": "gpt-3.5-turbo",

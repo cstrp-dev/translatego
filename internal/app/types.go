@@ -226,11 +226,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.Config.APIKeyInput != nil {
 						apiKey := m.Config.APIKeyInput.Value()
 						if apiKey != "" {
-							if err := m.app.config.SetAPIKey(m.Config.SelectedProvider, apiKey); err != nil {
-								m.showStatusMessage(fmt.Sprintf("❌ Failed to save API key: %v", err))
-								return m, nil
-							}
-							m.showStatusMessage("✅ API key saved successfully!")
+							m.app.config.SetAPIKey(m.Config.SelectedProvider, apiKey)
 						}
 					}
 					m.State = SetupState
@@ -316,13 +312,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cols = 3
 		}
 
-		boxWidth := (m.Width - 4) / cols
+		boxWidth := (m.Width - 2) / cols
 		rows := (numServices + cols - 1) / cols
 		boxHeight := (m.Height - 10) / rows
 
 		for name, vp := range m.Viewports {
-			vp.Width = boxWidth - 4
-			vp.Height = boxHeight - 4
+			vp.Width = boxWidth - 2
+			vp.Height = boxHeight - 2
 			m.Viewports[name] = vp
 		}
 	case ResultMsg:
@@ -341,7 +337,26 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 			m.Spinners[msg.Name] = sp
 			m.SpinnerStates[msg.Name] = SpinnerLoading
-			vp := viewport.New(30, 8)
+			// Calculate initial viewport dimensions based on current terminal size
+			numSvcs := len(m.AvailableServices) + 1 // +1 for the new service being added
+			var initialCols int
+			switch numSvcs {
+			case 1:
+				initialCols = 1
+			case 2:
+				initialCols = 2
+			case 3, 4:
+				initialCols = 2
+			case 5, 6:
+				initialCols = 3
+			default:
+				initialCols = 3
+			}
+			initialBoxWidth := (m.Width - 2) / initialCols
+			initialRows := (numSvcs + initialCols - 1) / initialCols
+			initialBoxHeight := (m.Height - 10) / initialRows
+
+			vp := viewport.New(initialBoxWidth-2, initialBoxHeight-2)
 			vp.SetContent("")
 			m.Viewports[msg.Name] = vp
 			cmds = append(cmds, sp.Tick)
@@ -408,11 +423,6 @@ func (m *Model) handleTranslationResult(msg TranslationMsg) {
 		delete(m.RetryAttempts, msg.Service)
 		m.TranslationProgress[msg.Service] = 1.0
 		m.app.cache.Set(msg.Service, "", "", "", msg.Text)
-
-		if vp, exists := m.Viewports[msg.Service]; exists {
-			vp.SetContent(msg.Text)
-			m.Viewports[msg.Service] = vp
-		}
 	} else {
 		m.handleTranslationError(msg)
 	}
@@ -427,7 +437,8 @@ func (m *Model) handleTranslationError(msg TranslationMsg) {
 	if attempts < m.MaxRetries {
 		m.RetryAttempts[msg.Service] = attempts + 1
 
-		m.Translations[msg.Service] = fmt.Sprintf("Retrying... (attempt %d/%d)", attempts+1, m.MaxRetries)
+		retryText := fmt.Sprintf("Retrying... (attempt %d/%d)", attempts+1, m.MaxRetries)
+		m.Translations[msg.Service] = retryText
 		m.TranslationProgress[msg.Service] = 0.5
 
 		if sp, exists := m.Spinners[msg.Service]; exists {
@@ -435,21 +446,11 @@ func (m *Model) handleTranslationError(msg TranslationMsg) {
 			m.Spinners[msg.Service] = sp
 			m.SpinnerStates[msg.Service] = SpinnerRetrying
 		}
-
-		if vp, exists := m.Viewports[msg.Service]; exists {
-			vp.SetContent(fmt.Sprintf("Retrying... (attempt %d/%d)", attempts+1, m.MaxRetries))
-			m.Viewports[msg.Service] = vp
-		}
 	} else {
 		detailedError := utils.GetDetailedErrorMessage(msg.Service, msg.Err)
 		m.Translations[msg.Service] = detailedError
 		delete(m.RetryAttempts, msg.Service)
 		m.TranslationProgress[msg.Service] = 0.0
-
-		if vp, exists := m.Viewports[msg.Service]; exists {
-			vp.SetContent(detailedError)
-			m.Viewports[msg.Service] = vp
-		}
 	}
 }
 
@@ -553,8 +554,10 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg, cmds *[]tea.Cmd) {
 			if m.TextInput != nil {
 				m.TextInput.SetValue(text)
 			}
-		} else if err != nil {
-			m.showStatusMessage(fmt.Sprintf("❌ Clipboard paste failed: %v", err))
+		}
+	case "ctrl+l":
+		if m.TextInput != nil {
+			m.TextInput.SetValue("")
 		}
 	case "alt+1":
 		m.copyTranslationToClipboard(0)
@@ -567,7 +570,6 @@ func (m *Model) handleKeyPress(msg tea.KeyMsg, cmds *[]tea.Cmd) {
 	case "alt+5":
 		m.cycleLayout()
 	case "alt+c":
-		m.showStatusMessage("📋 " + m.app.clipboard.GetClipboardInfo())
 	case "enter":
 		m.handleEnterKey(cmds)
 	}
@@ -577,21 +579,9 @@ func (m *Model) copyTranslationToClipboard(index int) {
 	if index < len(m.AvailableServices) {
 		serviceName := m.AvailableServices[index].Name
 		if trans := m.Translations[serviceName]; trans != "" && !strings.HasPrefix(trans, "Error:") {
-			if err := m.app.clipboard.CopyToClipboard(trans); err != nil {
-				m.showStatusMessage(fmt.Sprintf("❌ Failed to copy %s translation: %v", serviceName, err))
-			} else {
-				m.showStatusMessage(fmt.Sprintf("✅ Copied %s translation to clipboard", serviceName))
-			}
+			m.app.clipboard.CopyToClipboard(trans)
 		}
 	}
-}
-
-func (m *Model) showStatusMessage(message string) {
-	m.StatusMessage = message
-	go func() {
-		time.Sleep(3 * time.Second)
-		m.StatusMessage = ""
-	}()
 }
 
 func (m *Model) cycleLayout() {
@@ -617,13 +607,13 @@ func (m *Model) cycleLayout() {
 	m.Columns = optimalCols
 
 	if m.Width > 0 && m.Height > 0 {
-		boxWidth := (m.Width - 4) / m.Columns
+		boxWidth := (m.Width - 2) / m.Columns
 		rows := (numServices + m.Columns - 1) / m.Columns
 		boxHeight := (m.Height - 10) / rows
 
 		for name, vp := range m.Viewports {
-			vp.Width = boxWidth - 4
-			vp.Height = boxHeight - 4
+			vp.Width = boxWidth - 2
+			vp.Height = boxHeight - 2
 			m.Viewports[name] = vp
 		}
 	}
@@ -664,27 +654,6 @@ func (m *Model) handleEnterKey(cmds *[]tea.Cmd) {
 			m.Spinners[svc.Name] = sp
 			m.SpinnerStates[svc.Name] = SpinnerLoading
 
-			numServices := len(m.AvailableServices)
-			var cols int
-			switch numServices {
-			case 1:
-				cols = 1
-			case 2:
-				cols = 2
-			case 3, 4:
-				cols = 2
-			case 5, 6:
-				cols = 3
-			default:
-				cols = 3
-			}
-			rows := (numServices + cols - 1) / cols
-			boxWidth := (m.Width - 4) / cols
-			boxHeight := (m.Height - 10) / rows
-
-			vp := viewport.New(boxWidth-4, boxHeight-4)
-			vp.SetContent("")
-			m.Viewports[svc.Name] = vp
 			*cmds = append(*cmds, sp.Tick)
 		}
 
@@ -749,13 +718,6 @@ func (m *Model) ConfigView() string {
 		content.WriteString("💡 Your API key will be stored securely in ~/.config/multitrago/config.json\n")
 	}
 
-	if m.StatusMessage != "" {
-		statusStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
-		content.WriteString("\n" + statusStyle.Render(m.StatusMessage))
-	}
-
 	return content.String()
 }
 
@@ -806,7 +768,7 @@ func (m *Model) View() string {
 	}
 
 	rows := (numServices + cols - 1) / cols
-	boxWidth := (m.Width - 4) / cols
+	boxWidth := (m.Width - 2) / cols // Reduced margin from 4 to 2
 	boxHeight := (m.Height - 10) / rows
 
 	for _, svc := range m.AvailableServices {
@@ -820,32 +782,17 @@ func (m *Model) View() string {
 		progress := m.TranslationProgress[svc.Name]
 		var progressBar string
 		if progress > 0 && progress < 1.0 {
-			progressBar = "\n" + CreateProgressBar(progress, boxWidth-4)
+			progressBar = "\n" + CreateProgressBar(progress, boxWidth-2)
 		}
 
-		if vp, exists := m.Viewports[svc.Name]; exists {
-			vp.Width = boxWidth - 4
-			vp.Height = boxHeight - 4
-			if trans != "" && trans != "Ready for translation" && !strings.HasPrefix(trans, "Retrying") {
-				vp.SetContent(trans)
-			} else {
-				vp.SetContent(trans)
-			}
-			m.Viewports[svc.Name] = vp
-		}
+		wrappedTrans := WrapText(trans, boxWidth-2)
 
 		boxStyle := BoxStyle.
 			Width(boxWidth - 2).
 			Height(boxHeight - 2)
 
-		var displayContent string
-		if vp, exists := m.Viewports[svc.Name]; exists && len(trans) > 100 {
-			displayContent = vp.View()
-		} else {
-			displayContent = trans
-		}
-
-		box := boxStyle.Render(fmt.Sprintf("[%s]\n%s%s", svc.Name, displayContent, progressBar))
+		displayContent := wrappedTrans + progressBar
+		box := boxStyle.Render(fmt.Sprintf("[%s]\n%s", svc.Name, displayContent))
 		translationBoxes = append(translationBoxes, box)
 	}
 
@@ -862,14 +809,7 @@ func (m *Model) View() string {
 
 	layout := lipgloss.JoinVertical(lipgloss.Left, inputBox, translationsView)
 
-	help := fmt.Sprintf("\nPress Enter to translate | Target language: %s | Ctrl+V paste | Alt+1/2/3 copy | q to quit.", m.TargetLang)
-
-	if m.StatusMessage != "" {
-		statusStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("214")).
-			Bold(true)
-		help = statusStyle.Render(m.StatusMessage) + "\n" + help
-	}
+	help := fmt.Sprintf("\nPress Enter to translate | Target language: %s | Ctrl+V paste | Ctrl+L clear | Alt+1/2/3 copy | q to quit.", m.TargetLang)
 
 	return layout + help
 }
@@ -883,7 +823,8 @@ var (
 	BoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("69")).
-			Padding(1)
+			Padding(0, 0). // Reduced padding to maximize text space
+			Align(lipgloss.Left)
 
 	TitleStyle = lipgloss.NewStyle().
 			Bold(true).

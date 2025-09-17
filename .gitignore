@@ -1,0 +1,7 @@
+# Build artifacts
+src/
+pkg/
+*.pkg.tar.zst
+bin/
+multitrago
+translatego/
