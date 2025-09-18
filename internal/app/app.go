@@ -49,6 +49,9 @@ func (a *App) GetModel() *Model {
 	if a.config.IsAPIKeyRequired("OPENAI") && a.config.GetAPIKey("OPENAI") == "" {
 		initialState = ConfigState
 	}
+	if a.config.IsAPIKeyRequired("OPENROUTER") && a.config.GetAPIKey("OPENROUTER") == "" {
+		initialState = ConfigState
+	}
 
 	model := &Model{
 		State: initialState,

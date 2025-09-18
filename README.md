@@ -107,4 +107,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Author
 
-Valery Nosareu <cstrp.dev@gmail.com>
+@cstrp-dev

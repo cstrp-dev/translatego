@@ -55,6 +55,12 @@ func CheckService(cfg ServiceConfig) Result {
 			"messages": [{"role":"user","content":"Translate test to German"}]
 		}`)
 		checkURL = cfg.URL
+	case "OPENROUTER":
+		body = []byte(`{
+		"model": "deepseek/deepseek-chat-v3.1:free",
+		"messages": [{"role":"user","content":"Translate test to German"}]
+		}`)
+		checkURL = cfg.URL
 	default:
 		body = cfg.Body
 		checkURL = cfg.URL
@@ -121,6 +127,11 @@ func TranslateService(cfg ServiceConfig, text, source, target string) (string, e
 	case "OPENAI":
 		body = []byte(fmt.Sprintf(`{
 			"model": "gpt-3.5-turbo",
+			"messages": [{"role":"user","content":"Translate '%s' from %s to %s. Return only the translation, no additional text."}]
+		}`, text, getLanguageName(sourceCode), getLanguageName(targetCode)))
+	case "OPENROUTER":
+		body = []byte(fmt.Sprintf(`{
+			"model": "deepseek/deepseek-chat-v3.1:free",
 			"messages": [{"role":"user","content":"Translate '%s' from %s to %s. Return only the translation, no additional text."}]
 		}`, text, getLanguageName(sourceCode), getLanguageName(targetCode)))
 	}
@@ -236,6 +247,21 @@ func TranslateService(cfg ServiceConfig, text, source, target string) (string, e
 		}
 		return responseBody, nil
 	case "OPENAI":
+		var data map[string]interface{}
+		if err := json.Unmarshal([]byte(responseBody), &data); err != nil {
+			return "", err
+		}
+		if choices, ok := data["choices"].([]interface{}); ok && len(choices) > 0 {
+			if choice, ok := choices[0].(map[string]interface{}); ok {
+				if msg, ok := choice["message"].(map[string]interface{}); ok {
+					if content, ok := msg["content"].(string); ok {
+						return content, nil
+					}
+				}
+			}
+		}
+		return responseBody, nil
+	case "OPENROUTER":
 		var data map[string]interface{}
 		if err := json.Unmarshal([]byte(responseBody), &data); err != nil {
 			return "", err

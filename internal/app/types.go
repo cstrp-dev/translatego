@@ -194,7 +194,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Quit
 			case "enter":
 				if m.Config.CurrentStep == 0 {
-					allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY"}
+					allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY", "OPENROUTER"}
 					var providersRequiringKeys []string
 
 					for _, provider := range allProviders {
@@ -234,7 +234,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case "up", "k":
 				if m.Config.CurrentStep == 0 {
-					allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY"}
+					allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY", "OPENROUTER"}
 					var providersRequiringKeys []string
 
 					for _, provider := range allProviders {
@@ -250,7 +250,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			case "down", "j":
 				if m.Config.CurrentStep == 0 {
-					allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY"}
+					allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY", "OPENROUTER"}
 					var providersRequiringKeys []string
 
 					for _, provider := range allProviders {
@@ -337,8 +337,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("39"))
 			m.Spinners[msg.Name] = sp
 			m.SpinnerStates[msg.Name] = SpinnerLoading
-			// Calculate initial viewport dimensions based on current terminal size
-			numSvcs := len(m.AvailableServices) + 1 // +1 for the new service being added
+			numSvcs := len(m.AvailableServices) + 1
 			var initialCols int
 			switch numSvcs {
 			case 1:
@@ -484,6 +483,22 @@ func (m *Model) createTranslationCommand(svc utils.ServiceConfig, text, targetLa
 			}
 		}
 
+		if cfg.Name == "OPENROUTER" && m.app.config.IsAPIKeyRequired("OPENROUTER") {
+			apiKey := m.app.config.GetAPIKey("OPENROUTER")
+			if apiKey != "" {
+
+				newHeaders := make(map[string]string)
+				for k, v := range cfg.Headers {
+					if k == "Authorization" {
+						newHeaders[k] = "Bearer " + apiKey
+					} else {
+						newHeaders[k] = v
+					}
+				}
+				cfg.Headers = newHeaders
+			}
+		}
+
 		trans, err := utils.TranslateService(cfg, text, source, target)
 		if err == nil {
 			m.app.cache.Set(cfg.Name, text, source, target, trans)
@@ -515,6 +530,24 @@ func (m *Model) handleRetry(msg RetryMsg, cmds *[]tea.Cmd) {
 		finalCfg := cfg
 		if cfg.Name == "OPENAI" && m.app.config.IsAPIKeyRequired("OPENAI") {
 			apiKey := m.app.config.GetAPIKey("OPENAI")
+			if apiKey != "" {
+				if finalCfg.Headers == nil {
+					finalCfg.Headers = make(map[string]string)
+				}
+				newHeaders := make(map[string]string)
+				for k, v := range finalCfg.Headers {
+					if k == "Authorization" {
+						newHeaders[k] = "Bearer " + apiKey
+					} else {
+						newHeaders[k] = v
+					}
+				}
+				finalCfg.Headers = newHeaders
+			}
+		}
+
+		if cfg.Name == "OPENROUTER" && m.app.config.IsAPIKeyRequired("OPENROUTER") {
+			apiKey := m.app.config.GetAPIKey("OPENROUTER")
 			if apiKey != "" {
 				if finalCfg.Headers == nil {
 					finalCfg.Headers = make(map[string]string)
@@ -640,6 +673,15 @@ func (m *Model) handleEnterKey(cmds *[]tea.Cmd) {
 					continue
 				}
 			}
+			if svc.Name == "OPENROUTER" && m.app.config.IsAPIKeyRequired("OPENROUTER") {
+				apiKey := m.app.config.GetAPIKey("OPENROUTER")
+				if apiKey == "" {
+					m.TranslatingCount--
+					m.Translations[svc.Name] = "⚠️ OpenRouter API key required"
+					m.TranslationProgress[svc.Name] = 0.0
+					continue
+				}
+			}
 			validServices = append(validServices, svc)
 		}
 
@@ -673,7 +715,7 @@ func (m *Model) ConfigView() string {
 	if m.Config.CurrentStep == 0 {
 		content.WriteString("Select a provider that requires API key setup:\n\n")
 
-		allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY"}
+		allProviders := []string{"OPENAI", "GOOGLE", "DEEPL", "REVERSO", "MYMEMORY", "OPENROUTER"}
 		var providersRequiringKeys []string
 
 		for _, provider := range allProviders {

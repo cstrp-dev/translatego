@@ -90,6 +90,10 @@ func (m *Manager) createDefaultConfig() error {
 			provider.APIKey = ""
 		}
 
+		if service.Name == "OPENROUTER" {
+			provider.APIKey = ""
+		}
+
 		if len(service.Body) > 0 {
 			provider.Body = string(service.Body)
 		}
@@ -214,7 +218,7 @@ func (m *Manager) GetAPIKey(providerName string) string {
 }
 
 func (m *Manager) IsAPIKeyRequired(providerName string) bool {
-	return providerName == "OPENAI"
+	return providerName == "OPENAI" || providerName == "OPENROUTER"
 }
 
 func (m *Manager) GetConfigDir() string {

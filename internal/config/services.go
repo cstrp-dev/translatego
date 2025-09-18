@@ -68,6 +68,19 @@ func GetAvailableServices() []ServiceConfig {
 				"messages": [{"role":"user","content":"Translate hello to German"}]
 			}`),
 		},
+		{
+			Name:   "OPENROUTER",
+			URL:    "https://openrouter.ai/api/v1/chat/completions",
+			Method: http.MethodPost,
+			Headers: map[string]string{
+				"Content-Type":  "application/json",
+				"Authorization": "Bearer YOUR_API_KEY",
+			},
+			Body: []byte(`{
+				"model": "deepseek/deepseek-chat-v3.1:free",
+				"messages": [{"role":"user","content":"Translate hello to German"}]
+			}`),
+		},
 	}
 }
 

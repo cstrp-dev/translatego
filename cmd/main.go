@@ -18,6 +18,7 @@ func main() {
 	application := app.NewApp()
 
 	model := application.GetModel()
+
 	model.TextInput = &ti
 
 	p := tea.NewProgram(model)

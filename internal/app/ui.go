@@ -11,18 +11,19 @@ func (m *Model) SetupView() string {
 	figure := figure.NewFigure("Translatego", "big", true)
 	asciiArt := figure.String()
 
-	// Wrap the ASCII art in a border
 	borderWidth := 85
 	lines := strings.Split(asciiArt, "\n")
 	var borderedLines []string
 
 	borderedLines = append(borderedLines, strings.Repeat("═", borderWidth))
+
 	for _, line := range lines {
 		if len(line) > 0 {
 			padded := fmt.Sprintf("║ %-*s ║", borderWidth-4, line)
 			borderedLines = append(borderedLines, padded)
 		}
 	}
+
 	borderedLines = append(borderedLines, strings.Repeat("═", borderWidth))
 
 	finalArt := strings.Join(borderedLines, "\n")
@@ -41,6 +42,7 @@ func (m *Model) SetupView() string {
 	}
 
 	var menuItems []string
+
 	for i, lang := range m.Setup.Languages {
 		cursor := "  "
 		if i == m.Setup.SelectedIndex {
@@ -81,7 +83,6 @@ func WrapText(text string, width int) string {
 
 	for _, line := range lines {
 		if len(line) <= width {
-			// Pad the line to full width for better space utilization
 			paddedLine := line + strings.Repeat(" ", width-len(line))
 			result = append(result, paddedLine)
 			continue
@@ -123,40 +124,6 @@ func WrapText(text string, width int) string {
 	}
 
 	return strings.Join(result, "\n")
-}
-
-func justifyLine(words []string, width int) string {
-	if len(words) == 1 {
-		return words[0] + strings.Repeat(" ", width-len(words[0]))
-	}
-
-	totalWordLength := 0
-	for _, word := range words {
-		totalWordLength += len(word)
-	}
-
-	totalSpaces := width - totalWordLength
-	gaps := len(words) - 1
-
-	if gaps == 0 {
-		return words[0] + strings.Repeat(" ", totalSpaces)
-	}
-
-	spacesPerGap := totalSpaces / gaps
-	extraSpaces := totalSpaces % gaps
-
-	var result strings.Builder
-	for i, word := range words {
-		result.WriteString(word)
-		if i < len(words)-1 {
-			result.WriteString(strings.Repeat(" ", spacesPerGap))
-			if i < extraSpaces {
-				result.WriteString(" ")
-			}
-		}
-	}
-
-	return result.String()
 }
 
 func GetDetailedErrorMessage(service string, err error) string {
