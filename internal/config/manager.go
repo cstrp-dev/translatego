@@ -3,10 +3,10 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"multitrago/internal/utils"
 	"os"
 	"path/filepath"
 	"runtime"
+	"translatego/internal/utils"
 )
 
 type Config struct {
@@ -46,10 +46,10 @@ func NewManager() *Manager {
 		if appData == "" {
 			appData = filepath.Join(os.Getenv("USERPROFILE"), "AppData", "Roaming")
 		}
-		configDir = filepath.Join(appData, "multitrago")
+		configDir = filepath.Join(appData, "translatego")
 	} else {
 		homeDir, _ := os.UserHomeDir()
-		configDir = filepath.Join(homeDir, ".config", "multitrago")
+		configDir = filepath.Join(homeDir, ".config", "translatego")
 	}
 
 	return &Manager{

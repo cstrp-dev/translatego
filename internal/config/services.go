@@ -1,8 +1,8 @@
 package config
 
 import (
-	"multitrago/internal/utils"
 	"net/http"
+	"translatego/internal/utils"
 )
 
 type ServiceConfig = utils.ServiceConfig

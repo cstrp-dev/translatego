@@ -3,22 +3,29 @@ package app
 import (
 	"fmt"
 	"strings"
+
+	"github.com/common-nighthawk/go-figure"
 )
 
 func (m *Model) SetupView() string {
-	asciiArt := `
-╔══════════════════════════════════════════════════════════════════════════════╗
-║                                                                              ║
-║            ███╗   ███╗██╗   ██╗██╗  ████████╗██████╗  █████╗  ██████╗        ║
-║            ████╗ ████║██║   ██║██║  ╚══██╔══╝██╔══██╗██╔══██╗██╔════╝        ║
-║            ██╔████╔██║██║   ██║██║     ██║   ██████╔╝███████║██║  ███╗       ║
-║            ██║╚██╔╝██║██║   ██║██║     ██║   ██╔══██╗██╔══██║██║   ██║       ║
-║            ██║ ╚═╝ ██║╚██████╔╝███████╗██║   ██║  ██║██║  ██║╚██████╔╝       ║
-║            ╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝   ╚═╝  ╚═╝╚═╝  ╚═╝ ╚═════╝        ║
-║                                                                              ║
-║                    🌍 Advanced Translation Terminal 🌍                       ║
-║                                                                              ║
-╚══════════════════════════════════════════════════════════════════════════════╝`
+	figure := figure.NewFigure("Translatego", "big", true)
+	asciiArt := figure.String()
+
+	// Wrap the ASCII art in a border
+	borderWidth := 85
+	lines := strings.Split(asciiArt, "\n")
+	var borderedLines []string
+
+	borderedLines = append(borderedLines, strings.Repeat("═", borderWidth))
+	for _, line := range lines {
+		if len(line) > 0 {
+			padded := fmt.Sprintf("║ %-*s ║", borderWidth-4, line)
+			borderedLines = append(borderedLines, padded)
+		}
+	}
+	borderedLines = append(borderedLines, strings.Repeat("═", borderWidth))
+
+	finalArt := strings.Join(borderedLines, "\n")
 
 	langNames := map[string]string{
 		"ru": "Русский",
@@ -48,7 +55,7 @@ func (m *Model) SetupView() string {
 	instructions := "\n\n" + InstructionStyle.
 		Render("Use ↑↓ arrows to navigate • Press Enter to select • Press Ctrl+C to quit")
 
-	return asciiArt + "\n\n" + TitleStyle.
+	return finalArt + "\n\n" + TitleStyle.
 		Render("Choose your target language:") + "\n\n" + menu + instructions
 }
 

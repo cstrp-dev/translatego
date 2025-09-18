@@ -1,11 +1,11 @@
 package app
 
 import (
-	"multitrago/internal/cache"
-	"multitrago/internal/clipboard"
-	"multitrago/internal/config"
-	"multitrago/internal/ratelimit"
-	"multitrago/internal/utils"
+	"translatego/internal/cache"
+	"translatego/internal/clipboard"
+	"translatego/internal/config"
+	"translatego/internal/ratelimit"
+	"translatego/internal/utils"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"

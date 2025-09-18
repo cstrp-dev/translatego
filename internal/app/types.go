@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"multitrago/internal/utils"
+	"translatego/internal/utils"
 
 	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -667,7 +667,7 @@ func (m *Model) handleEnterKey(cmds *[]tea.Cmd) {
 func (m *Model) ConfigView() string {
 	var content strings.Builder
 
-	title := TitleStyle.Render("🔧 Multitrago Configuration")
+	title := TitleStyle.Render("🔧 Translatego Configuration")
 	content.WriteString(title + "\n\n")
 
 	if m.Config.CurrentStep == 0 {
@@ -715,7 +715,7 @@ func (m *Model) ConfigView() string {
 		}
 
 		content.WriteString("Press Enter to save, q to quit\n")
-		content.WriteString("💡 Your API key will be stored securely in ~/.config/multitrago/config.json\n")
+		content.WriteString("💡 Your API key will be stored securely in ~/.config/translatego/config.json\n")
 	}
 
 	return content.String()
@@ -731,7 +731,7 @@ func (m *Model) View() string {
 	}
 
 	if m.State == LoadingState {
-		return "\n\n🌍 Preparing Multitrago...\n\n"
+		return "\n\n🌍 Preparing Translatego...\n\n"
 	}
 
 	if m.State == CheckingState || (m.State == MainState && m.CheckedCount < 5) {

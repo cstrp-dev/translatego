@@ -6,7 +6,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 
-	"multitrago/internal/app"
+	"translatego/internal/app"
 )
 
 func main() {
