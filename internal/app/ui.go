@@ -74,8 +74,15 @@ func CreateProgressBar(progress float64, width int) string {
 }
 
 func WrapText(text string, width int) string {
-	if width <= 0 || text == "" {
+	if width <= 0 {
+		width = 20
+	}
+	if text == "" {
 		return text
+	}
+
+	if width < 8 {
+		width = 8
 	}
 
 	lines := strings.Split(text, "\n")
@@ -83,15 +90,13 @@ func WrapText(text string, width int) string {
 
 	for _, line := range lines {
 		if len(line) <= width {
-			paddedLine := line + strings.Repeat(" ", width-len(line))
-			result = append(result, paddedLine)
+			result = append(result, line)
 			continue
 		}
 
 		words := strings.Fields(line)
 		if len(words) == 0 {
-			paddedLine := line + strings.Repeat(" ", width-len(line))
-			result = append(result, paddedLine)
+			result = append(result, "")
 			continue
 		}
 
@@ -101,6 +106,25 @@ func WrapText(text string, width int) string {
 		for _, word := range words {
 			wordLength := len(word)
 
+			if wordLength > width {
+				if len(currentLine) > 0 {
+					result = append(result, strings.Join(currentLine, " "))
+					currentLine = []string{}
+					lineLength = 0
+				}
+
+				for len(word) > width {
+					result = append(result, word[:width-1]+"-")
+					word = word[width-1:]
+				}
+
+				if len(word) > 0 {
+					currentLine = append(currentLine, word)
+					lineLength = len(word)
+				}
+				continue
+			}
+
 			if lineLength == 0 {
 				currentLine = append(currentLine, word)
 				lineLength = wordLength
@@ -108,49 +132,16 @@ func WrapText(text string, width int) string {
 				currentLine = append(currentLine, word)
 				lineLength += 1 + wordLength
 			} else {
-				line := strings.Join(currentLine, " ")
-				paddedLine := line + strings.Repeat(" ", width-len(line))
-				result = append(result, paddedLine)
+				result = append(result, strings.Join(currentLine, " "))
 				currentLine = []string{word}
 				lineLength = wordLength
 			}
 		}
 
 		if len(currentLine) > 0 {
-			line := strings.Join(currentLine, " ")
-			paddedLine := line + strings.Repeat(" ", width-len(line))
-			result = append(result, paddedLine)
+			result = append(result, strings.Join(currentLine, " "))
 		}
 	}
 
 	return strings.Join(result, "\n")
-}
-
-func GetDetailedErrorMessage(service string, err error) string {
-	if err == nil {
-		return ""
-	}
-
-	errStr := err.Error()
-
-	switch {
-	case strings.Contains(errStr, "rate limit"):
-		return fmt.Sprintf("⚠️  Rate Limit Exceeded\nService: %s\nSuggestion: Wait a moment and try again", service)
-	case strings.Contains(errStr, "timeout"):
-		return fmt.Sprintf("⏱️  Request Timeout\nService: %s\nSuggestion: Check your internet connection or try again", service)
-	case strings.Contains(errStr, "connection refused"):
-		return fmt.Sprintf("🌐 Connection Failed\nService: %s\nSuggestion: Service may be temporarily unavailable", service)
-	case strings.Contains(errStr, "status 429"):
-		return fmt.Sprintf("🚫 Too Many Requests\nService: %s\nSuggestion: Service is busy, try again in a few minutes", service)
-	case strings.Contains(errStr, "status 500"):
-		return fmt.Sprintf("🔧 Server Error\nService: %s\nSuggestion: Service is experiencing issues, try again later", service)
-	case strings.Contains(errStr, "status 503"):
-		return fmt.Sprintf("🔄 Service Unavailable\nService: %s\nSuggestion: Service is temporarily down, try again later", service)
-	case strings.Contains(errStr, "distinct languages"):
-		return fmt.Sprintf("🌍 Language Conflict\nService: %s\nSuggestion: Source and target languages are the same", service)
-	case strings.Contains(errStr, "unsupported language"):
-		return fmt.Sprintf("🗣️ Unsupported Language\nService: %s\nSuggestion: Try a different language pair", service)
-	default:
-		return fmt.Sprintf("❌ Translation Failed\nService: %s\nError: %v\nSuggestion: Check input text or try a different service", service, err)
-	}
 }

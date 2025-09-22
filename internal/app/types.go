@@ -72,6 +72,7 @@ type Model struct {
 	Progress            progress.Model
 	CheckProgress       float64
 	StatusMessage       string
+	CurrentText         string // Store current text being translated
 	app                 *App
 }
 
@@ -316,9 +317,25 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		rows := (numServices + cols - 1) / cols
 		boxHeight := (m.Height - 10) / rows
 
+		minBoxWidth := 40
+		minBoxHeight := 8
+
+		if boxWidth < minBoxWidth {
+			boxWidth = minBoxWidth
+			cols = (m.Width - 2) / minBoxWidth
+			if cols < 1 {
+				cols = 1
+			}
+			rows = (numServices + cols - 1) / cols
+			boxHeight = (m.Height - 10) / rows
+		}
+		if boxHeight < minBoxHeight {
+			boxHeight = minBoxHeight
+		}
+
 		for name, vp := range m.Viewports {
-			vp.Width = boxWidth - 2
-			vp.Height = boxHeight - 2
+			vp.Width = boxWidth - 4
+			vp.Height = boxHeight - 3
 			m.Viewports[name] = vp
 		}
 	case ResultMsg:
@@ -355,7 +372,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			initialRows := (numSvcs + initialCols - 1) / initialCols
 			initialBoxHeight := (m.Height - 10) / initialRows
 
-			vp := viewport.New(initialBoxWidth-2, initialBoxHeight-2)
+			minBoxWidth := 40
+			minBoxHeight := 8
+
+			if initialBoxWidth < minBoxWidth {
+				initialBoxWidth = minBoxWidth
+			}
+			if initialBoxHeight < minBoxHeight {
+				initialBoxHeight = minBoxHeight
+			}
+
+			vp := viewport.New(initialBoxWidth-4, initialBoxHeight-3)
 			vp.SetContent("")
 			m.Viewports[msg.Name] = vp
 			cmds = append(cmds, sp.Tick)
@@ -368,7 +395,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case TranslationMsg:
-		m.handleTranslationResult(msg)
+		if retryCmd := m.handleTranslationResult(msg); retryCmd != nil {
+			cmds = append(cmds, *retryCmd)
+		}
 	case RetryMsg:
 		m.handleRetry(msg, &cmds)
 	case spinner.TickMsg:
@@ -416,41 +445,83 @@ func (m *Model) Init() tea.Cmd {
 	return nil
 }
 
-func (m *Model) handleTranslationResult(msg TranslationMsg) {
+func (m *Model) handleTranslationResult(msg TranslationMsg) *tea.Cmd {
 	if msg.Err == nil {
 		m.Translations[msg.Service] = msg.Text
 		delete(m.RetryAttempts, msg.Service)
 		m.TranslationProgress[msg.Service] = 1.0
 		m.app.cache.Set(msg.Service, "", "", "", msg.Text)
 	} else {
-		m.handleTranslationError(msg)
+		return m.handleTranslationError(msg)
 	}
 	m.TranslatingCount--
 	if m.TranslatingCount <= 0 {
 		m.IsTranslating = false
 	}
+	return nil
 }
 
-func (m *Model) handleTranslationError(msg TranslationMsg) {
+func (m *Model) handleTranslationError(msg TranslationMsg) *tea.Cmd {
 	attempts := m.RetryAttempts[msg.Service]
-	if attempts < m.MaxRetries {
+
+	var isRetryable bool
+	if serviceErr, ok := msg.Err.(*utils.ServiceError); ok {
+		isRetryable = serviceErr.IsRetryable
+	} else {
+		isRetryable = true
+	}
+
+	if attempts < m.MaxRetries && isRetryable {
 		m.RetryAttempts[msg.Service] = attempts + 1
 
-		retryText := fmt.Sprintf("Retrying... (attempt %d/%d)", attempts+1, m.MaxRetries)
+		retryText := m.getRetryText(msg.Service, attempts+1)
 		m.Translations[msg.Service] = retryText
-		m.TranslationProgress[msg.Service] = 0.5
+		m.TranslationProgress[msg.Service] = 0.0
 
 		if sp, exists := m.Spinners[msg.Service]; exists {
 			sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 			m.Spinners[msg.Service] = sp
 			m.SpinnerStates[msg.Service] = SpinnerRetrying
 		}
+
+		delay := time.Duration(attempts+1) * 2 * time.Second
+		retryCmd := tea.Tick(delay, func(t time.Time) tea.Msg {
+			return RetryMsg{
+				Service: msg.Service,
+				Text:    m.CurrentText,
+				Source:  "",
+				Target:  m.TargetLang,
+				Attempt: attempts + 1,
+				Delay:   delay,
+			}
+		})
+		return &retryCmd
 	} else {
-		detailedError := utils.GetDetailedErrorMessage(msg.Service, msg.Err)
+		detailedError := utils.GetServiceSpecificErrorMessage(msg.Service, msg.Err, 0)
 		m.Translations[msg.Service] = detailedError
 		delete(m.RetryAttempts, msg.Service)
 		m.TranslationProgress[msg.Service] = 0.0
+
+		if sp, exists := m.Spinners[msg.Service]; exists {
+			sp.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("196"))
+			m.Spinners[msg.Service] = sp
+			m.SpinnerStates[msg.Service] = SpinnerError
+		}
 	}
+	return nil
+}
+
+func (m *Model) getRetryText(service string, attempt int) string {
+	dots := ""
+	dotCount := (time.Now().Unix() % 4)
+	for i := int64(0); i < dotCount; i++ {
+		dots += "."
+	}
+	for i := dotCount; i < 3; i++ {
+		dots += " "
+	}
+
+	return fmt.Sprintf("🔄 Retrying%s (attempt %d/%d)", dots, attempt, m.MaxRetries)
 }
 
 func (m *Model) createTranslationCommand(svc utils.ServiceConfig, text, targetLang string) tea.Cmd {
@@ -464,7 +535,14 @@ func (m *Model) createTranslationCommand(svc utils.ServiceConfig, text, targetLa
 		}
 
 		if !m.app.rateLimit.Allow(cfg.Name) {
-			return TranslationMsg{Service: cfg.Name, Text: "", Err: fmt.Errorf("rate limit exceeded")}
+			rateLimitErr := &utils.ServiceError{
+				Service:     cfg.Name,
+				ErrorType:   utils.ErrorTypeRateLimit,
+				Message:     "Rate limit exceeded",
+				Suggestion:  "Wait before making more requests",
+				IsRetryable: true,
+			}
+			return TranslationMsg{Service: cfg.Name, Text: "", Err: rateLimitErr}
 		}
 
 		if cfg.Name == "OPENAI" && m.app.config.IsAPIKeyRequired("OPENAI") {
@@ -565,7 +643,14 @@ func (m *Model) handleRetry(msg RetryMsg, cmds *[]tea.Cmd) {
 		}
 
 		if !m.app.rateLimit.Allow(cfg.Name) {
-			return TranslationMsg{Service: cfg.Name, Text: "", Err: fmt.Errorf("rate limit exceeded")}
+			rateLimitErr := &utils.ServiceError{
+				Service:     cfg.Name,
+				ErrorType:   utils.ErrorTypeRateLimit,
+				Message:     "Rate limit exceeded",
+				Suggestion:  "Wait before making more requests",
+				IsRetryable: true,
+			}
+			return TranslationMsg{Service: cfg.Name, Text: "", Err: rateLimitErr}
 		}
 
 		trans, err := utils.TranslateService(finalCfg, msg.Text, source, target)
@@ -644,9 +729,19 @@ func (m *Model) cycleLayout() {
 		rows := (numServices + m.Columns - 1) / m.Columns
 		boxHeight := (m.Height - 10) / rows
 
+		minBoxWidth := 40
+		minBoxHeight := 8
+
+		if boxWidth < minBoxWidth {
+			boxWidth = minBoxWidth
+		}
+		if boxHeight < minBoxHeight {
+			boxHeight = minBoxHeight
+		}
+
 		for name, vp := range m.Viewports {
-			vp.Width = boxWidth - 2
-			vp.Height = boxHeight - 2
+			vp.Width = boxWidth - 4
+			vp.Height = boxHeight - 3
 			m.Viewports[name] = vp
 		}
 	}
@@ -659,6 +754,7 @@ func (m *Model) handleEnterKey(cmds *[]tea.Cmd) {
 
 	text := m.TextInput.Value()
 	if !m.IsTranslating && text != "" {
+		m.CurrentText = text
 		m.IsTranslating = true
 		m.TranslatingCount = len(m.AvailableServices)
 
@@ -810,8 +906,24 @@ func (m *Model) View() string {
 	}
 
 	rows := (numServices + cols - 1) / cols
-	boxWidth := (m.Width - 2) / cols // Reduced margin from 4 to 2
+	boxWidth := (m.Width - 2) / cols
 	boxHeight := (m.Height - 10) / rows
+
+	minBoxWidth := 40
+	minBoxHeight := 8
+
+	if boxWidth < minBoxWidth {
+		boxWidth = minBoxWidth
+		cols = (m.Width - 2) / minBoxWidth
+		if cols < 1 {
+			cols = 1
+		}
+		rows = (numServices + cols - 1) / cols
+		boxHeight = (m.Height - 10) / rows
+	}
+	if boxHeight < minBoxHeight {
+		boxHeight = minBoxHeight
+	}
 
 	for _, svc := range m.AvailableServices {
 		trans := m.Translations[svc.Name]
@@ -819,19 +931,22 @@ func (m *Model) View() string {
 			trans = m.Spinners[svc.Name].View() + " Translating..."
 		} else if trans == "" {
 			trans = "Ready for translation"
+		} else if m.SpinnerStates[svc.Name] == SpinnerRetrying {
+			attempts := m.RetryAttempts[svc.Name]
+			trans = m.getRetryText(svc.Name, attempts)
 		}
 
 		progress := m.TranslationProgress[svc.Name]
 		var progressBar string
 		if progress > 0 && progress < 1.0 {
-			progressBar = "\n" + CreateProgressBar(progress, boxWidth-2)
+			progressBar = "\n" + CreateProgressBar(progress, boxWidth-6)
 		}
 
-		wrappedTrans := WrapText(trans, boxWidth-2)
+		wrappedTrans := WrapText(trans, boxWidth-6)
 
 		boxStyle := BoxStyle.
-			Width(boxWidth - 2).
-			Height(boxHeight - 2)
+			Width(boxWidth - 4).
+			Height(boxHeight - 3)
 
 		displayContent := wrappedTrans + progressBar
 		box := boxStyle.Render(fmt.Sprintf("[%s]\n%s", svc.Name, displayContent))
@@ -865,7 +980,7 @@ var (
 	BoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.NormalBorder()).
 			BorderForeground(lipgloss.Color("69")).
-			Padding(0, 0). // Reduced padding to maximize text space
+			Padding(1, 1).
 			Align(lipgloss.Left)
 
 	TitleStyle = lipgloss.NewStyle().

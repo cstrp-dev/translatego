@@ -1,9 +1,113 @@
 package utils
 
 import (
+	"fmt"
 	"regexp"
+	"strings"
 	"unicode"
 )
+
+type ServiceError struct {
+	Service     string
+	StatusCode  int
+	ErrorType   string
+	Message     string
+	Suggestion  string
+	IsRetryable bool
+}
+
+func (e *ServiceError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Service, e.Message)
+}
+
+const (
+	ErrorTypeTimeout       = "TIMEOUT"
+	ErrorTypeRateLimit     = "RATE_LIMIT"
+	ErrorTypeUnauthorized  = "UNAUTHORIZED"
+	ErrorTypeForbidden     = "FORBIDDEN"
+	ErrorTypeNotFound      = "NOT_FOUND"
+	ErrorTypeServerError   = "SERVER_ERROR"
+	ErrorTypeServiceDown   = "SERVICE_DOWN"
+	ErrorTypeNetworkError  = "NETWORK_ERROR"
+	ErrorTypeLanguageError = "LANGUAGE_ERROR"
+	ErrorTypeUnknown       = "UNKNOWN"
+)
+
+func CreateServiceError(serviceName string, err error, statusCode int) *ServiceError {
+	if err == nil {
+		return nil
+	}
+
+	errStr := strings.ToLower(err.Error())
+	serviceErr := &ServiceError{
+		Service:    serviceName,
+		StatusCode: statusCode,
+	}
+
+	switch {
+	case strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded"):
+		serviceErr.ErrorType = ErrorTypeTimeout
+		serviceErr.Message = "Request timed out"
+		serviceErr.Suggestion = "Check your internet connection or try again"
+		serviceErr.IsRetryable = true
+
+	case statusCode == 429 || strings.Contains(errStr, "rate limit"):
+		serviceErr.ErrorType = ErrorTypeRateLimit
+		serviceErr.Message = "Rate limit exceeded"
+		serviceErr.Suggestion = "Wait a moment before trying again"
+		serviceErr.IsRetryable = true
+
+	case statusCode == 401 || strings.Contains(errStr, "unauthorized"):
+		serviceErr.ErrorType = ErrorTypeUnauthorized
+		serviceErr.Message = "Invalid or missing API key"
+		serviceErr.Suggestion = "Check your API key configuration"
+		serviceErr.IsRetryable = false
+
+	case statusCode == 403 || strings.Contains(errStr, "forbidden"):
+		serviceErr.ErrorType = ErrorTypeForbidden
+		serviceErr.Message = "Access forbidden"
+		serviceErr.Suggestion = "API key may be invalid or service unavailable"
+		serviceErr.IsRetryable = false
+
+	case statusCode == 404:
+		serviceErr.ErrorType = ErrorTypeNotFound
+		serviceErr.Message = "Service endpoint not found"
+		serviceErr.Suggestion = "Service may be temporarily unavailable"
+		serviceErr.IsRetryable = true
+
+	case statusCode >= 500 && statusCode < 600:
+		serviceErr.ErrorType = ErrorTypeServerError
+		serviceErr.Message = fmt.Sprintf("Server error (HTTP %d)", statusCode)
+		serviceErr.Suggestion = "Service is experiencing issues, try again later"
+		serviceErr.IsRetryable = true
+
+	case statusCode == 503:
+		serviceErr.ErrorType = ErrorTypeServiceDown
+		serviceErr.Message = "Service temporarily unavailable"
+		serviceErr.Suggestion = "Service is down for maintenance, try again later"
+		serviceErr.IsRetryable = true
+
+	case strings.Contains(errStr, "connection refused") || strings.Contains(errStr, "network"):
+		serviceErr.ErrorType = ErrorTypeNetworkError
+		serviceErr.Message = "Network connection failed"
+		serviceErr.Suggestion = "Check your internet connection"
+		serviceErr.IsRetryable = true
+
+	case strings.Contains(errStr, "distinct languages") || strings.Contains(errStr, "unsupported language"):
+		serviceErr.ErrorType = ErrorTypeLanguageError
+		serviceErr.Message = "Language configuration issue"
+		serviceErr.Suggestion = "Check source and target language settings"
+		serviceErr.IsRetryable = false
+
+	default:
+		serviceErr.ErrorType = ErrorTypeUnknown
+		serviceErr.Message = err.Error()
+		serviceErr.Suggestion = "Try a different service or check input text"
+		serviceErr.IsRetryable = false
+	}
+
+	return serviceErr
+}
 
 func DetectFromLanguage(text string) string {
 	nonLangPattern := regexp.MustCompile(`[\s\n\r.,;:!?()\-\"']`)
@@ -59,69 +163,96 @@ func GetDetailedErrorMessage(serviceName string, err error) string {
 		return "Unknown error"
 	}
 
-	errMsg := err.Error()
+	if serviceErr, ok := err.(*ServiceError); ok {
+		return FormatServiceError(serviceErr)
+	}
+
+	serviceErr := CreateServiceError(serviceName, err, 0)
+	return FormatServiceError(serviceErr)
+}
+
+func FormatServiceError(err *ServiceError) string {
+	if err == nil {
+		return "Unknown error"
+	}
+
+	var icon string
+	switch err.ErrorType {
+	case ErrorTypeTimeout:
+		icon = "⏱️"
+	case ErrorTypeRateLimit:
+		icon = "🚫"
+	case ErrorTypeUnauthorized:
+		icon = "🔑"
+	case ErrorTypeForbidden:
+		icon = "⛔"
+	case ErrorTypeNotFound:
+		icon = "❓"
+	case ErrorTypeServerError:
+		icon = "🔧"
+	case ErrorTypeServiceDown:
+		icon = "🔄"
+	case ErrorTypeNetworkError:
+		icon = "🌐"
+	case ErrorTypeLanguageError:
+		icon = "🗣️"
+	default:
+		icon = "❌"
+	}
+
+	var retryInfo string
+	if err.IsRetryable {
+		retryInfo = "\n🔄 Will retry automatically"
+	} else {
+		retryInfo = "\n⚠️  Manual intervention required"
+	}
+
+	return fmt.Sprintf("%s %s Error\n"+
+		"Service: %s\n"+
+		"Issue: %s\n"+
+		"Suggestion: %s%s",
+		icon, err.ErrorType, err.Service, err.Message, err.Suggestion, retryInfo)
+}
+
+func GetServiceSpecificErrorMessage(serviceName string, err error, statusCode int) string {
+	serviceErr := CreateServiceError(serviceName, err, statusCode)
 
 	switch serviceName {
-	case "GOOGLE":
-		if errMsg == "status 429" {
-			return "❌ Google: Rate limit exceeded. Please try again later."
-		} else if errMsg == "status 403" {
-			return "❌ Google: Access forbidden. Service may be unavailable."
-		} else if errMsg == "request timeout after 10 seconds" {
-			return "❌ Google: Request timeout. Service may be slow or unavailable."
-		}
-		return "❌ Google: " + errMsg
-	case "DEEPL":
-		if errMsg == "status 429" {
-			return "❌ DeepL: Rate limit exceeded. Please try again later."
-		} else if errMsg == "status 403" {
-			return "❌ DeepL: Access forbidden. API key may be invalid."
-		} else if errMsg == "request timeout after 10 seconds" {
-			return "❌ DeepL: Request timeout. Service may be slow or unavailable."
-		}
-		return "❌ DeepL: " + errMsg
-	case "REVERSO":
-		if errMsg == "status 429" {
-			return "❌ Reverso: Rate limit exceeded. Please try again later."
-		} else if errMsg == "status 403" {
-			return "❌ Reverso: Access forbidden. Service may be unavailable."
-		} else if errMsg == "request timeout after 10 seconds" {
-			return "❌ Reverso: Request timeout. Service may be slow or unavailable."
-		}
-		return "❌ Reverso: " + errMsg
-	case "MYMEMORY":
-		if errMsg == "status 429" {
-			return "❌ MyMemory: Rate limit exceeded. Please try again later."
-		} else if errMsg == "status 403" {
-			return "❌ MyMemory: Access forbidden. Service may be unavailable."
-		} else if errMsg == "request timeout after 10 seconds" {
-			return "❌ MyMemory: Request timeout. Service may be slow or unavailable."
-		}
-		return "❌ MyMemory: " + errMsg
-	case "LINGVA":
-		if errMsg == "status 429" {
-			return "❌ Lingva: Rate limit exceeded. Please try again later."
-		} else if errMsg == "status 403" {
-			return "❌ Lingva: Access forbidden. Service may be unavailable."
-		} else if errMsg == "request timeout after 10 seconds" {
-			return "❌ Lingva: Request timeout. Service may be slow or unavailable."
-		}
-		return "❌ Lingva: " + errMsg
 	case "OPENAI":
-		if errMsg == "status 401" {
-			return "❌ OpenAI: Invalid API key. Please check your configuration."
-		} else if errMsg == "status 429" {
-			return "❌ OpenAI: Rate limit exceeded. Please try again later."
-		} else if errMsg == "status 403" {
-			return "❌ OpenAI: Access forbidden. API key may be invalid."
-		} else if errMsg == "request timeout after 10 seconds" {
-			return "❌ OpenAI: Request timeout. Service may be slow or unavailable."
+		if serviceErr.ErrorType == ErrorTypeUnauthorized {
+			serviceErr.Suggestion = "Get your API key from https://platform.openai.com/account/api-keys"
+		} else if serviceErr.ErrorType == ErrorTypeRateLimit {
+			serviceErr.Suggestion = "OpenAI has usage limits. Check your account quota or upgrade plan"
 		}
-		return "❌ OpenAI: " + errMsg
-	default:
-		if errMsg == "request timeout after 10 seconds" {
-			return "❌ " + serviceName + ": Request timeout. Service may be slow or unavailable."
+	case "OPENROUTER":
+		if serviceErr.ErrorType == ErrorTypeUnauthorized {
+			serviceErr.Suggestion = "Get your API key from https://openrouter.ai/keys"
+		} else if serviceErr.ErrorType == ErrorTypeRateLimit {
+			serviceErr.Suggestion = "OpenRouter rate limits apply. Wait or upgrade your plan"
+		} else if serviceErr.ErrorType == ErrorTypeNetworkError && strings.Contains(serviceErr.Message, "response") {
+			serviceErr.Suggestion = "Large text may cause issues. Try shorter text or check network"
 		}
-		return "❌ " + serviceName + ": " + errMsg
+	case "GOOGLE":
+		if serviceErr.ErrorType == ErrorTypeRateLimit {
+			serviceErr.Suggestion = "Google Translate has rate limits. Try again in a few minutes"
+		}
+	case "DEEPL":
+		if serviceErr.ErrorType == ErrorTypeUnauthorized {
+			serviceErr.Suggestion = "DeepL requires a valid API key for advanced features"
+		}
+	case "REVERSO", "REVERSO2":
+		if serviceErr.ErrorType == ErrorTypeRateLimit {
+			serviceErr.Suggestion = "Reverso limits requests. Wait before trying again"
+		}
+	case "MYMEMORY":
+		if serviceErr.ErrorType == ErrorTypeRateLimit {
+			serviceErr.Suggestion = "MyMemory has daily limits for anonymous users"
+		}
+	case "LINGVA":
+		if serviceErr.ErrorType == ErrorTypeServerError {
+			serviceErr.Suggestion = "Lingva is a community service. Try again later"
+		}
 	}
+
+	return FormatServiceError(serviceErr)
 }

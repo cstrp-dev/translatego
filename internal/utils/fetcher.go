@@ -151,16 +151,39 @@ func TranslateService(cfg ServiceConfig, text, source, target string) (string, e
 		req.Header.Set(k, v)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	timeout := 15 * time.Second
+	if len(text) > 500 {
+		timeout = 30 * time.Second
+	}
+	if len(text) > 1500 {
+		timeout = 45 * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 
 	res, err := client.Do(req)
 	if err != nil {
+		var serviceErr *ServiceError
 		if ctx.Err() == context.DeadlineExceeded {
-			return "", fmt.Errorf("request timeout after 10 seconds")
+			serviceErr = &ServiceError{
+				Service:     cfg.Name,
+				ErrorType:   ErrorTypeTimeout,
+				Message:     fmt.Sprintf("Request timed out after %v", timeout),
+				Suggestion:  "Check your internet connection or try again",
+				IsRetryable: true,
+			}
+		} else {
+			serviceErr = &ServiceError{
+				Service:     cfg.Name,
+				ErrorType:   ErrorTypeNetworkError,
+				Message:     fmt.Sprintf("Network error: %v", err),
+				Suggestion:  "Check your internet connection",
+				IsRetryable: true,
+			}
 		}
-		return "", fmt.Errorf("request failed: %w", err)
+		return "", serviceErr
 	}
 
 	defer func() {
@@ -170,12 +193,59 @@ func TranslateService(cfg ServiceConfig, text, source, target string) (string, e
 	}()
 
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("status %d", res.StatusCode)
+		statusErr := &ServiceError{
+			Service:     cfg.Name,
+			StatusCode:  res.StatusCode,
+			IsRetryable: res.StatusCode >= 500 || res.StatusCode == 429,
+		}
+
+		switch res.StatusCode {
+		case 429:
+			statusErr.ErrorType = ErrorTypeRateLimit
+			statusErr.Message = "Rate limit exceeded"
+			statusErr.Suggestion = "Wait a moment before trying again"
+		case 401:
+			statusErr.ErrorType = ErrorTypeUnauthorized
+			statusErr.Message = "Invalid or missing API key"
+			statusErr.Suggestion = "Check your API key configuration"
+		case 403:
+			statusErr.ErrorType = ErrorTypeForbidden
+			statusErr.Message = "Access forbidden"
+			statusErr.Suggestion = "API key may be invalid or service unavailable"
+		case 404:
+			statusErr.ErrorType = ErrorTypeNotFound
+			statusErr.Message = "Service endpoint not found"
+			statusErr.Suggestion = "Service may be temporarily unavailable"
+		case 503:
+			statusErr.ErrorType = ErrorTypeServiceDown
+			statusErr.Message = "Service temporarily unavailable"
+			statusErr.Suggestion = "Service is down for maintenance"
+		default:
+			if res.StatusCode >= 500 {
+				statusErr.ErrorType = ErrorTypeServerError
+				statusErr.Message = fmt.Sprintf("Server error (HTTP %d)", res.StatusCode)
+				statusErr.Suggestion = "Service is experiencing issues"
+			} else {
+				statusErr.ErrorType = ErrorTypeUnknown
+				statusErr.Message = fmt.Sprintf("HTTP error %d", res.StatusCode)
+				statusErr.Suggestion = "Check service documentation"
+			}
+		}
+
+		return "", statusErr
 	}
 
 	buf := new(bytes.Buffer)
+	buf.Grow(8192) // Pre-allocate buffer for better performance
 	if _, err := buf.ReadFrom(res.Body); err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		serviceErr := &ServiceError{
+			Service:     cfg.Name,
+			ErrorType:   ErrorTypeNetworkError,
+			Message:     fmt.Sprintf("Failed to read response: %v", err),
+			Suggestion:  "Network connection may be unstable or response too large",
+			IsRetryable: true,
+		}
+		return "", serviceErr
 	}
 	responseBody := buf.String()
 
